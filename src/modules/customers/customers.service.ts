@@ -10,8 +10,13 @@ export const getCustomer = async (id: string) => {
   const [customer, invoices] = await Promise.all([
     prisma.customer.findUnique({ where: { id }, include: { orders: { orderBy: { createdAt: 'desc' } } } }),
     prisma.invoice.findMany({
-      where: { status: 'PENDING', order: { is: { customerId: id } } },
-      select: { dueAt: true, totalCents: true, payments: { select: { amountCents: true } } },
+      where: { order: { is: { customerId: id } } },
+      select: {
+        dueAt: true,
+        totalCents: true,
+        payments: { select: { amountCents: true } },
+        creditNotes: { select: { amountCents: true } },
+      },
     }),
   ]);
   if (!customer) {

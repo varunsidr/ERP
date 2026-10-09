@@ -16,5 +16,5 @@ test('invoice due dates default to 30 days and overdue balances respect UTC due 
     { dueAt: new Date('2026-10-01T00:00:00.000Z'), totalCents: 500, payments: [] },
     { dueAt: new Date('2026-09-01T00:00:00.000Z'), totalCents: 200, payments: [{ amountCents: 200 }] },
   ], now);
-  assert.deepEqual(totals, { invoiceCount: 2, outstandingCents: 1100, overdueCents: 600 });
+  assert.deepEqual(totals, { invoiceCount: 2, outstandingCents: 1100, overdueCents: 600, accountCreditCents: 0 });
 });

@@ -28,7 +28,8 @@ See the [product and production-readiness roadmap](docs/ROADMAP.md) for the
 prioritized milestones, acceptance criteria, and project scope.
 See [access control](docs/ACCESS_CONTROL.md) for the permission matrix and remaining security work.
 `npm run db:reconcile` performs read-only cross-record checks for inventory
-reservations, order/invoice snapshots, payment totals, and receipt/consumption
+reservations, order/invoice snapshots, payment totals, purchase receipts,
+customer-return quantities, credit notes, and receipt/consumption/restock
 movements. It reports mismatching counts without printing record identifiers.
 See the [database recovery runbook](docs/OPERATIONS_RECOVERY.md) for the
 staging restore and cutover procedure; it still needs a staging rehearsal.
@@ -132,3 +133,19 @@ Each completed pipeline run also publishes an `erp-analytics` artifact containin
 sanitized run/test history and CSVs for Power BI. In the test repository, use
 `npm run analytics:sync` to collect these artifacts and rebuild local report data.
 See the [Power BI setup guide](https://github.com/ashishbarthwal/ai-self-healing-test-automation-framework/blob/main/analytics/powerbi/README.md).
+
+## Test support (local, CI and staging demos only)
+
+Set `ERP_TEST_SUPPORT=enabled` and `ERP_TEST_SUPPORT_TOKEN` (24+ characters) to mount
+token-protected helpers under `/__test`. Startup rejects this in production, and the
+routes return 404 without the `x-erp-test-token` header.
+
+- `POST /__test/reset` wipes all data and sessions and restores the baseline (admin, one
+  customer, product and supplier). Send `{"roleUsers": true}` to also create
+  `sales@`, `purchasing@`, `inventory@` and `staff@mini-erp.test` with the seed password.
+- `GET /__test/emails?to=<address>` returns verification/reset links captured by
+  `MAIL_MODE=outbox`; `DELETE /__test/emails` clears them.
+- Raise `AUTH_LOGIN_ATTEMPT_LIMIT` / `AUTH_SIGNUP_ATTEMPT_LIMIT` (up to 1000) so parallel
+  test workers do not hit rate limits.
+- `docker compose up --build -d` starts the app and a disposable PostgreSQL on
+  `http://localhost:4000` with these settings; call the reset endpoint to load data.

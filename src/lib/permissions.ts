@@ -9,13 +9,14 @@ export type Permission =
   | 'orders.write'
   | 'invoices.write'
   | 'payments.write'
+  | 'returns.write'
   | 'suppliers.write'
   | 'purchases.write'
   | 'purchases.receive'
   | 'users.write';
 
 const grants: Record<Exclude<Role, 'ADMIN'>, readonly Permission[]> = {
-  SALES: ['customers.write', 'orders.write', 'invoices.write'],
+  SALES: ['customers.write', 'orders.write', 'invoices.write', 'returns.write'],
   PURCHASING: ['suppliers.write', 'purchases.write'],
   INVENTORY: ['products.write', 'inventory.write', 'purchases.receive'],
   STAFF: [],

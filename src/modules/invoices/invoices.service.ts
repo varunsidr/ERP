@@ -6,8 +6,9 @@ import { invoiceDueAt } from './invoice.rules';
 import { recordAuditEvent } from '../audit/audit.service';
 
 const invoiceInclude = {
-  items: { include: { product: true } },
+  items: { include: { product: true, returns: true } },
   payments: true,
+  creditNotes: { include: { customerReturn: { include: { items: { include: { product: true } } } } } },
   order: { include: { customer: true } },
 } as const;
 
@@ -100,20 +101,21 @@ export const recordPayment = async (invoiceId: string, input: RecordPaymentInput
     }
 
     const alreadyPaid = invoice.payments.reduce((sum, payment) => sum + payment.amountCents, 0);
+    const credited = invoice.creditNotes.reduce((sum, credit) => sum + credit.amountCents, 0);
     const newTotal = alreadyPaid + input.amountCents;
-    if (newTotal > invoice.totalCents) {
+    if (newTotal + credited > invoice.totalCents) {
       throw badRequest(
-        `Payment of ${input.amountCents} would exceed invoice total (outstanding: ${invoice.totalCents - alreadyPaid})`,
+        `Payment of ${input.amountCents} would exceed invoice total (outstanding: ${Math.max(0, invoice.totalCents - alreadyPaid - credited)})`,
       );
     }
     await tx.payment.create({
       data: { invoiceId, amountCents: input.amountCents, method, idempotencyKey: input.idempotencyKey ?? null },
     });
 
-    const isFullyPaid = newTotal === invoice.totalCents;
+    const isFullyPaid = newTotal + credited >= invoice.totalCents;
     const updatedInvoice = await tx.invoice.update({
       where: { id: invoiceId },
-      data: isFullyPaid ? { status: 'PAID', paidAt: new Date() } : {},
+      data: isFullyPaid ? { status: credited ? 'SETTLED' : 'PAID', paidAt: new Date() } : {},
       include: invoiceInclude,
     });
     await recordAuditEvent(tx, { actorId, action: 'invoice.payment_recorded', entityType: 'Invoice', entityId: invoiceId,

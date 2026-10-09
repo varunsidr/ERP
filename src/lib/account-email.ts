@@ -1,6 +1,7 @@
 import { appendFileSync } from 'node:fs';
 import nodemailer from 'nodemailer';
 import { AppError } from './errors';
+import { pushOutboxEmail } from './email-outbox';
 
 export const accountEmailDisabled = (environment = process.env) => environment.MAIL_MODE?.trim() === 'disabled';
 
@@ -15,7 +16,13 @@ const escapeHtml = (value: string) => value.replace(/[&<>"']/g, character => ({
 
 export const validateMailConfiguration = (environment: Record<string, string | undefined>) => {
   const mailMode = environment.MAIL_MODE?.trim();
-  if (mailMode && !['smtp', 'disabled'].includes(mailMode)) throw new Error('MAIL_MODE must be smtp or disabled');
+  if (mailMode && !['smtp', 'disabled', 'outbox'].includes(mailMode)) throw new Error('MAIL_MODE must be smtp, disabled, or outbox');
+  if (mailMode === 'outbox') {
+    if (environment.NODE_ENV === 'production' || environment.ERP_TEST_SUPPORT?.trim() !== 'enabled') {
+      throw new Error('MAIL_MODE=outbox requires ERP_TEST_SUPPORT=enabled and is not allowed in production');
+    }
+    return { mode: 'outbox' as const };
+  }
   if (mailMode === 'disabled') {
     if (environment.NODE_ENV !== 'staging') throw new Error('Disabled email is supported only for the staging demo');
     return { mode: 'disabled' as const };
@@ -57,6 +64,10 @@ export const sendAccountActionEmail = async (
   const link = new URL(input.purpose === 'EMAIL_VERIFICATION' ? '/verify-email' : '/reset-password',
     config.mode === 'smtp' ? config.appUrl : (process.env.PUBLIC_APP_URL || `http://localhost:${process.env.PORT || '4000'}`));
   link.searchParams.set('token', input.rawToken);
+  if (config.mode === 'outbox') {
+    pushOutboxEmail({ to: input.to, purpose: input.purpose, url: link.toString() });
+    return;
+  }
   if (process.env.NODE_ENV === 'test') {
     const outbox = process.env.ERP_TEST_EMAIL_OUTBOX;
     if (outbox) appendFileSync(outbox, `${JSON.stringify({ to: input.to, purpose: input.purpose, url: link.toString() })}\n`, { encoding: 'utf8', mode: 0o600 });

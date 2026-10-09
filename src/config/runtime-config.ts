@@ -1,5 +1,6 @@
 export type RuntimeEnvironment = Record<string, string | undefined>;
 import { validateMailConfiguration } from '../lib/account-email';
+import { validateTestSupportConfiguration } from '../lib/test-support';
 
 const required = (environment: RuntimeEnvironment, key: string) => {
   const value = environment[key]?.trim();
@@ -47,6 +48,7 @@ export const parseRuntimeConfig = (environment: RuntimeEnvironment) => {
     throw new Error('APP_RELEASE_SHA must be the full 40-character Git commit SHA in staging and production');
   }
   validateMailConfiguration(environment);
+  validateTestSupportConfiguration(environment);
   const databaseUrl = required(environment, 'DATABASE_URL');
   const directUrl = required(environment, 'DATABASE_URL_UNPOOLED');
   const jwtSecret = required(environment, 'JWT_SECRET');

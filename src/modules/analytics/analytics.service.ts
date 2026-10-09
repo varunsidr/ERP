@@ -15,7 +15,7 @@ export async function getAnalytics(days: AnalyticsPeriod, now = new Date()) {
   const [invoices, payments, receivables, salesOrders, purchaseReceipts, openPurchases, products] = await Promise.all([
     prisma.invoice.findMany({ where: { createdAt: { gte: since, lte: until } }, include: { items: { include: { product: true } } } }),
     prisma.payment.findMany({ where: { createdAt: { gte: since, lte: until } } }),
-    prisma.invoice.findMany({ where: { status: 'PENDING' }, include: { payments: true } }),
+    prisma.invoice.findMany({ where: { status: 'PENDING' }, include: { payments: true, creditNotes: true } }),
     prisma.order.findMany({ where: { createdAt: { gte: since, lte: until } }, select: { status: true, invoice: { select: { id: true } } } }),
     prisma.purchaseReceipt.findMany({ where: { createdAt: { gte: since, lte: until } }, include: { items: { include: { purchaseOrderItem: true } } } }),
     prisma.purchaseOrder.findMany({ where: { status: { in: ['DRAFT', 'ORDERED', 'PARTIALLY_RECEIVED'] } }, include: { items: true } }),

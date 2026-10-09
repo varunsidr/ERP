@@ -1,6 +1,6 @@
 # Mini ERP roadmap
 
-Status: updated 1 October 2026. This is a personal project with one
+Status: updated 6 October 2026. This is a personal project with one
 fictional small distributor as its reference business. It aims to show dependable
 business workflows and professional engineering without claiming SAP parity or
 becoming a general purpose SaaS platform.
@@ -14,6 +14,12 @@ reserves stock; invoicing consumes reserved stock. Price and cost snapshots
 preserve historical document amounts.
 There is a movement history, REST API, server rendered interface, Prisma
 migrations, and a separate change aware Playwright workflow.
+
+This is currently an **operations and inventory mini-ERP**, not a full
+accounting or general-purpose ERP. In comparison with established products such
+as Odoo or ERPNext, it intentionally has a narrower functional scope. The next
+product expansion should complete adjacent operational workflows before
+considering a general ledger or other specialist modules.
 
 The earlier assessment was **7.5/10 as a personal project** and **3/10 as a
 business deployment**. Treat those as a historical baseline, not a current score.
@@ -165,8 +171,11 @@ Build in this order, stopping when the portfolio story is complete:
    purchase orders. Add warehouses only when the single location flow is
    reliable.
 3. **Partially implemented:** invoices have editable-at-issue due dates and
-   customers show outstanding and overdue balances. Still define and implement
-   partial fulfilment, returns and credit notes with their inventory effects.
+   customers show outstanding and overdue balances. Invoice returns now create
+   auditable credit notes, enforce cumulative return quantities, and restock
+   only items marked resaleable. Still add explicit partial shipment/
+   fulfilment and continue the return workflow with application of customer
+   credits to other invoices.
 4. **Usability at volume:** server side search, filters, pagination, clearer
    validation errors, responsive tables, accessibility review, and realistic
    demo data.
@@ -175,6 +184,32 @@ Build in this order, stopping when the portfolio story is complete:
 payment, and a return while balances remain explainable.
 
 ### 5. Adjacent modules (optional, one at a time)
+
+The next feature phase closes the most visible gaps in the existing order-to-cash
+and inventory workflows. Implement each as an end-to-end, audited, permissioned
+workflow across the database, API, web UI, and tests; do not add placeholder
+screens or imply accounting behavior that does not exist.
+
+1. **Returns and credit notes — first slice implemented:** record a return
+   against an invoice, validate cumulative quantities against invoice lines,
+   preserve historical unit prices, issue an auditable credit note, and restock
+   only items marked resaleable. A paid invoice can produce an account credit;
+   this version does not issue cash refunds or apply the credit to a different
+   invoice. Expand return tests and reconciliation, then design cross-invoice
+   credit application as a separate balance-safe workflow.
+2. **Shipment and delivery records:** make fulfilment explicit instead of
+   treating invoice issuance as shipment. Track shipped quantities and dates,
+   support partial fulfilment, and consume reserved stock only when a shipment
+   is dispatched. Define how existing orders are represented during migration.
+3. **Multiple inventory locations:** introduce warehouses/locations, transfers,
+   and location-level available/reserved quantities only after the single-location
+   flow is reliable. Preserve a clear aggregate stock view and reconcile
+   movements between locations.
+4. **Financial foundation:** only after the operational documents are stable,
+   define accounting ownership, tax requirements, currencies, and an auditable
+   posting model. General ledger, journals, reconciliation, and financial
+   statements require an explicit accounting design and knowledgeable review;
+   do not present basic invoice/payment totals as accounting.
 
 | Module | Smallest useful version | Depends on |
 | --- | --- | --- |

@@ -1,21 +1,23 @@
-<% const money = cents => `$${(cents / 100).toFixed(2)}`; const paidCents = invoice.payments.reduce((sum, payment) => sum + payment.amountCents, 0); const outstandingCents = invoice.totalCents - paidCents; const paymentProgress = invoice.totalCents ? Math.max(0, Math.min(100, Math.floor(paidCents / invoice.totalCents * 100))) : 0; const utcToday = new Date(); utcToday.setUTCHours(0,0,0,0); const overdue = invoice.status === 'PENDING' && new Date(invoice.dueAt) < utcToday; %>
+<% const money = cents => `$${(cents / 100).toFixed(2)}`; const paidCents = invoice.payments.reduce((sum, payment) => sum + payment.amountCents, 0); const creditedCents = invoice.creditNotes.reduce((sum, credit) => sum + credit.amountCents, 0); const settledCents = Math.min(invoice.totalCents, paidCents + creditedCents); const outstandingCents = Math.max(0, invoice.totalCents - paidCents - creditedCents); const customerCreditCents = Math.max(0, paidCents + creditedCents - invoice.totalCents); const paymentProgress = invoice.totalCents ? Math.max(0, Math.min(100, Math.floor(settledCents / invoice.totalCents * 100))) : 0; const utcToday = new Date(); utcToday.setUTCHours(0,0,0,0); const overdue = invoice.status === 'PENDING' && outstandingCents > 0 && new Date(invoice.dueAt) < utcToday; const canReturn = locals.can?.('returns.write') && invoice.items.some(item => item.quantity > item.returns.reduce((sum, returned) => sum + returned.quantity, 0)); %>
 <%- include('../partials/header') %>
   <article class="document-page">
     <header class="document-header">
       <div class="document-heading">
         <div><p class="eyebrow"><a href="/invoices">Invoices</a> / Accounts receivable</p><h1>Invoice <span class="document-id"><%= invoice.id.slice(0, 12) %></span><span class="print-only print-document-id"><%= invoice.id %></span></h1></div>
-        <div class="document-actions"><a class="button secondary" href="/orders/<%= invoice.order.id %>">Open sales order</a><% if (invoice.status === 'PENDING' && locals.can?.('payments.write')) { %><a class="button" href="#payments">Record payment</a><% } %><button class="button ghost" type="button" data-print-document aria-label="Print invoice">Print</button></div>
+        <div class="document-actions"><a class="button secondary" href="/orders/<%= invoice.order.id %>">Open sales order</a><% if (outstandingCents > 0 && invoice.status === 'PENDING' && locals.can?.('payments.write')) { %><a class="button" href="#payments">Record payment</a><% } %><button class="button ghost" type="button" data-print-document aria-label="Print invoice">Print</button></div>
       </div>
       <dl class="document-facts">
         <div><dt>Customer</dt><dd><a href="/customers/<%= invoice.order.customer.id %>"><%= invoice.order.customer.name %></a></dd></div>
         <div><dt>Invoice total</dt><dd data-testid="invoice-total"><%= money(invoice.totalCents) %></dd></div>
         <div><dt>Due date</dt><dd data-testid="invoice-due-date"><%= new Date(invoice.dueAt).toLocaleDateString('en-US', { timeZone: 'UTC' }) %><% if (overdue) { %> <span class="status status-cancelled">Overdue</span><% } %></dd></div>
         <div><dt>Paid</dt><dd data-testid="invoice-paid"><%= money(paidCents) %></dd></div>
+        <div><dt>Credit notes</dt><dd data-testid="invoice-credits"><%= money(creditedCents) %></dd></div>
         <div><dt>Outstanding</dt><dd data-testid="invoice-outstanding"><%= money(outstandingCents) %> <span class="status status-<%= invoice.status.toLowerCase() %>" data-testid="invoice-status"><%= invoice.status %></span></dd></div>
+        <% if (customerCreditCents > 0) { %><div><dt>Customer credit</dt><dd data-testid="invoice-customer-credit"><%= money(customerCreditCents) %></dd></div><% } %>
       </dl>
-      <div class="document-progress"><span>Payment progress</span><div class="progress-track" role="progressbar" aria-label="Invoice payment progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="<%= paymentProgress %>" aria-valuetext="<%= money(paidCents) %> paid of <%= money(invoice.totalCents) %>"><span class="progress-segment <%= invoice.status === 'PAID' ? 'progress-done' : 'progress-ready' %>" style="width:<%= paymentProgress %>%"></span></div><span><%= money(paidCents) %> of <%= money(invoice.totalCents) %> paid</span></div>
+      <div class="document-progress"><span>Payment and credit progress</span><div class="progress-track" role="progressbar" aria-label="Invoice payment and credit progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="<%= paymentProgress %>" aria-valuetext="<%= money(settledCents) %> settled of <%= money(invoice.totalCents) %>"><span class="progress-segment <%= paymentProgress === 100 ? 'progress-done' : 'progress-ready' %>" style="width:<%= paymentProgress %>%"></span></div><span><%= money(settledCents) %> of <%= money(invoice.totalCents) %> settled</span></div>
     </header>
-    <nav class="document-tabs" aria-label="Invoice sections"><a href="#contents">Contents</a><a href="#payments">Payments</a><a href="#details">Details</a></nav>
+    <nav class="document-tabs" aria-label="Invoice sections"><a href="#contents">Contents</a><a href="#payments">Payments</a><a href="#returns">Returns and credits</a><a href="#details">Details</a></nav>
     <section class="document-section" id="contents">
       <h2>Invoice lines</h2><p class="section-note">Prices are captured at billing; tax and discount are not modelled in this demo.</p>
       <div class="table-wrap"><table class="table-plain document-lines"><thead><tr><th>No.</th><th>Product</th><th>SKU</th><th class="numeric">Quantity</th><th class="numeric">Unit price</th><th class="numeric">Line total</th></tr></thead><tbody>
@@ -26,7 +28,7 @@
     <section class="document-section" id="payments">
       <h2>Payment history</h2><p class="section-note"><%= invoice.payments.length %> recorded transaction<%= invoice.payments.length === 1 ? '' : 's' %></p>
       <% if (invoice.payments.length) { %><div class="table-wrap"><table class="table-plain payment-lines"><thead><tr><th>Recorded</th><th>Method</th><th class="numeric">Amount</th></tr></thead><tbody><% invoice.payments.forEach(function(payment) { %><tr data-testid="payment-record"><td data-label="Recorded"><%= new Date(payment.createdAt).toLocaleString() %></td><td data-label="Method"><%= payment.method %></td><td data-label="Amount" class="numeric"><%= money(payment.amountCents) %></td></tr><% }) %></tbody></table></div><% } else { %><p class="section-note" style="margin-top:12px">No payments recorded yet.</p><% } %>
-      <% if (invoice.status === 'PENDING' && locals.can?.('payments.write')) { %>
+      <% if (outstandingCents > 0 && invoice.status === 'PENDING' && locals.can?.('payments.write')) { %>
         <form action="/invoices/<%= invoice.id %>/payments" method="post" data-testid="record-payment-form" style="margin-top:22px;padding-top:18px;border-top:1px solid var(--line)">
           <%- include('../partials/csrf') %>
           <input type="hidden" name="idempotencyKey" value="<%= locals.paymentIdempotencyKey || '' %>" />
@@ -36,6 +38,28 @@
         </form>
       <% } %>
     </section>
-    <section class="document-section" id="details"><h2>Document details</h2><dl class="document-meta"><div><dt>Created</dt><dd><%= new Date(invoice.createdAt).toLocaleString() %></dd></div><div><dt>Due date</dt><dd><%= new Date(invoice.dueAt).toLocaleDateString('en-US', { timeZone: 'UTC' }) %></dd></div><div><dt>Source order</dt><dd><a href="/orders/<%= invoice.order.id %>"><%= invoice.order.id.slice(0, 12) %></a></dd></div><div><dt>Paid in full</dt><dd><%= invoice.paidAt ? new Date(invoice.paidAt).toLocaleString() : 'Not yet' %></dd></div></dl></section>
+    <section class="document-section" id="returns">
+      <h2>Returns and credit notes</h2>
+      <p class="section-note">A return issues a credit against this invoice. Only items marked resaleable are added back to available stock; credits do not trigger a cash refund.</p>
+      <% if (invoice.creditNotes.length) { %>
+        <div class="table-wrap"><table class="table-plain"><thead><tr><th>Issued</th><th>Reason</th><th>Returned items</th><th class="numeric">Credit</th></tr></thead><tbody>
+          <% invoice.creditNotes.forEach(function (credit) { %><tr data-testid="credit-note-row"><td><%= new Date(credit.createdAt).toLocaleString() %></td><td><%= credit.customerReturn.reason %></td><td><%= credit.customerReturn.items.map(item => `${item.quantity} × ${item.product.name}${item.resaleable ? ' (restocked)' : ' (not restocked)'}`).join(', ') %></td><td class="numeric"><strong><%= money(credit.amountCents) %></strong></td></tr><% }) %>
+        </tbody></table></div>
+      <% } else { %><p class="section-note">No returns recorded.</p><% } %>
+      <% if (canReturn) { %>
+        <form action="/invoices/<%= invoice.id %>/returns" method="post" data-testid="record-return-form" style="margin-top:22px;padding-top:18px;border-top:1px solid var(--line)">
+          <%- include('../partials/csrf') %>
+          <input type="hidden" name="idempotencyKey" value="<%= locals.returnIdempotencyKey || '' %>" />
+          <div><label for="returnReason">Return reason</label><input type="text" id="returnReason" name="reason" minlength="3" maxlength="160" required /></div>
+          <div class="table-wrap"><table class="table-plain"><thead><tr><th>Product</th><th>Invoiced</th><th>Already returned</th><th>Return quantity</th><th>Resaleable / restock</th></tr></thead><tbody>
+            <% invoice.items.forEach(function(item, index) { const returnedQty = item.returns.reduce((sum, returned) => sum + returned.quantity, 0); const remainingQty = item.quantity - returnedQty; if (remainingQty > 0) { %>
+              <tr data-testid="return-line"><td><%= item.product.name %></td><td><%= item.quantity %></td><td><%= returnedQty %></td><td><input type="hidden" name="items[<%= index %>][invoiceItemId]" value="<%= item.id %>" /><input aria-label="Return quantity for <%= item.product.name %>" type="number" name="items[<%= index %>][quantity]" min="0" max="<%= remainingQty %>" value="0" /></td><td><label><input type="checkbox" name="items[<%= index %>][resaleable]" value="true" /> Add back to available stock</label></td></tr>
+            <% } }) %>
+          </tbody></table></div>
+          <button type="submit">Record return and issue credit note</button>
+        </form>
+      <% } %>
+    </section>
+    <section class="document-section" id="details"><h2>Document details</h2><dl class="document-meta"><div><dt>Created</dt><dd><%= new Date(invoice.createdAt).toLocaleString() %></dd></div><div><dt>Due date</dt><dd><%= new Date(invoice.dueAt).toLocaleDateString('en-US', { timeZone: 'UTC' }) %></dd></div><div><dt>Source order</dt><dd><a href="/orders/<%= invoice.order.id %>"><%= invoice.order.id.slice(0, 12) %></a></dd></div><div><dt>Settled at</dt><dd><%= invoice.paidAt ? new Date(invoice.paidAt).toLocaleString() : 'Not yet' %></dd></div></dl></section>
   </article>
 <%- include('../partials/footer') %>

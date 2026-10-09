@@ -6,36 +6,36 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
   directUrl = env("DATABASE_URL_UNPOOLED")
 }
 
 // Status and role values remain strings constrained by TypeScript schemas and service validation.
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  passwordHash String
-  name         String
-  role         String   @default("STAFF")
-  active       Boolean  @default(true)
-  tokenVersion Int      @default(0)
+  id              String               @id @default(cuid())
+  email           String               @unique
+  passwordHash    String
+  name            String
+  role            String               @default("STAFF")
+  active          Boolean              @default(true)
+  tokenVersion    Int                  @default(0)
   emailVerifiedAt DateTime?
-  createdAt    DateTime @default(now())
-  auditEvents  AuditEvent[]
-  actionTokens AccountActionToken[]
+  createdAt       DateTime             @default(now())
+  auditEvents     AuditEvent[]
+  actionTokens    AccountActionToken[]
 }
 
 model AccountActionToken {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  purpose   String
-  tokenHash String   @unique
-  expiresAt DateTime
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  purpose    String
+  tokenHash  String    @unique
+  expiresAt  DateTime
   consumedAt DateTime?
-  createdAt DateTime @default(now())
+  createdAt  DateTime  @default(now())
 
   @@index([userId, purpose, expiresAt])
   @@index([expiresAt])
@@ -65,41 +65,42 @@ model Customer {
 }
 
 model Product {
-  id            String         @id @default(cuid())
-  sku           String         @unique
-  name          String
-  description   String?
-  priceCents    Int
-  reorderPoint  Int            @default(10)
-  createdAt     DateTime       @default(now())
-  inventoryItem InventoryItem?
+  id                 String              @id @default(cuid())
+  sku                String              @unique
+  name               String
+  description        String?
+  priceCents         Int
+  reorderPoint       Int                 @default(10)
+  createdAt          DateTime            @default(now())
+  inventoryItem      InventoryItem?
   inventoryMovements InventoryMovement[]
-  orderItems    OrderItem[]
-  invoiceItems  InvoiceItem[]
+  orderItems         OrderItem[]
+  invoiceItems       InvoiceItem[]
+  returnItems        ReturnItem[]
   purchaseOrderItems PurchaseOrderItem[]
 }
 
 model InventoryItem {
-  id            String   @id @default(cuid())
-  productId     String   @unique
-  product       Product  @relation(fields: [productId], references: [id])
-  availableQty  Int      @default(0)
-  reservedQty   Int      @default(0)
-  updatedAt     DateTime @updatedAt
+  id           String   @id @default(cuid())
+  productId    String   @unique
+  product      Product  @relation(fields: [productId], references: [id])
+  availableQty Int      @default(0)
+  reservedQty  Int      @default(0)
+  updatedAt    DateTime @updatedAt
 }
 
 model InventoryMovement {
-  id            String   @id @default(cuid())
-  productId     String
-  product       Product  @relation(fields: [productId], references: [id])
-  type          String
-  quantityDelta Int      @default(0)
-  reservedDelta Int      @default(0)
-  referenceType String?
-  referenceId   String?
-  note          String?
-    idempotencyKeyHash String? @unique
-  createdAt     DateTime @default(now())
+  id                 String   @id @default(cuid())
+  productId          String
+  product            Product  @relation(fields: [productId], references: [id])
+  type               String
+  quantityDelta      Int      @default(0)
+  reservedDelta      Int      @default(0)
+  referenceType      String?
+  referenceId        String?
+  note               String?
+  idempotencyKeyHash String?  @unique
+  createdAt          DateTime @default(now())
 
   @@index([productId, createdAt])
   @@index([referenceType, referenceId])
@@ -115,24 +116,24 @@ model Supplier {
 }
 
 model PurchaseOrder {
-  id         String              @id @default(cuid())
-  supplierId String
-  supplier   Supplier            @relation(fields: [supplierId], references: [id])
-  status     String              @default("DRAFT")
-  items      PurchaseOrderItem[]
-  createdAt  DateTime            @default(now())
-  orderedAt  DateTime?
-  receivedAt DateTime?
+  id                    String              @id @default(cuid())
+  supplierId            String
+  supplier              Supplier            @relation(fields: [supplierId], references: [id])
+  status                String              @default("DRAFT")
+  items                 PurchaseOrderItem[]
+  createdAt             DateTime            @default(now())
+  orderedAt             DateTime?
+  receivedAt            DateTime?
   receiptIdempotencyKey String?
-  receipts PurchaseReceipt[]
+  receipts              PurchaseReceipt[]
 }
 
 model PurchaseOrderItem {
-  id              String        @id @default(cuid())
+  id              String                @id @default(cuid())
   purchaseOrderId String
-  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+  purchaseOrder   PurchaseOrder         @relation(fields: [purchaseOrderId], references: [id])
   productId       String
-  product         Product       @relation(fields: [productId], references: [id])
+  product         Product               @relation(fields: [productId], references: [id])
   quantity        Int
   unitCostCents   Int
   receivedQty     Int                   @default(0)
@@ -176,36 +177,82 @@ model Order {
 }
 
 model OrderItem {
-  id            String  @id @default(cuid())
-  orderId       String
-  order         Order   @relation(fields: [orderId], references: [id])
-  productId     String
-  product       Product @relation(fields: [productId], references: [id])
-  quantity      Int
-  unitPriceCents Int
-}
-
-model Invoice {
-  id          String        @id @default(cuid())
-  orderId     String        @unique
-  order       Order         @relation(fields: [orderId], references: [id])
-  status      String        @default("PENDING")
-  totalCents  Int
-  dueAt       DateTime             @default(dbgenerated("((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') + INTERVAL '30 days')"))
-  items       InvoiceItem[]
-  payments    Payment[]
-  createdAt   DateTime      @default(now())
-  paidAt      DateTime?
-}
-
-model InvoiceItem {
   id             String  @id @default(cuid())
-  invoiceId      String
-  invoice        Invoice @relation(fields: [invoiceId], references: [id])
+  orderId        String
+  order          Order   @relation(fields: [orderId], references: [id])
   productId      String
   product        Product @relation(fields: [productId], references: [id])
   quantity       Int
   unitPriceCents Int
+}
+
+model Invoice {
+  id          String           @id @default(cuid())
+  orderId     String           @unique
+  order       Order            @relation(fields: [orderId], references: [id])
+  status      String           @default("PENDING")
+  totalCents  Int
+  dueAt       DateTime         @default(dbgenerated("((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') + INTERVAL '30 days')"))
+  items       InvoiceItem[]
+  payments    Payment[]
+  creditNotes CreditNote[]
+  returns     CustomerReturn[]
+  createdAt   DateTime         @default(now())
+  paidAt      DateTime?
+}
+
+model InvoiceItem {
+  id             String       @id @default(cuid())
+  invoiceId      String
+  invoice        Invoice      @relation(fields: [invoiceId], references: [id])
+  productId      String
+  product        Product      @relation(fields: [productId], references: [id])
+  quantity       Int
+  unitPriceCents Int
+  returns        ReturnItem[]
+}
+
+model CustomerReturn {
+  id             String       @id @default(cuid())
+  invoiceId      String
+  invoice        Invoice      @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  reason         String
+  amountCents    Int
+  idempotencyKey String
+  requestHash    String
+  items          ReturnItem[]
+  creditNote     CreditNote?
+  createdAt      DateTime     @default(now())
+
+  @@unique([invoiceId, idempotencyKey])
+  @@index([invoiceId, createdAt])
+}
+
+model ReturnItem {
+  id             String         @id @default(cuid())
+  returnId       String
+  customerReturn CustomerReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  invoiceItemId  String
+  invoiceItem    InvoiceItem    @relation(fields: [invoiceItemId], references: [id], onDelete: Restrict)
+  productId      String
+  product        Product        @relation(fields: [productId], references: [id], onDelete: Restrict)
+  quantity       Int
+  resaleable     Boolean        @default(false)
+
+  @@unique([returnId, invoiceItemId])
+  @@index([invoiceItemId])
+}
+
+model CreditNote {
+  id             String         @id @default(cuid())
+  invoiceId      String
+  invoice        Invoice        @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  returnId       String         @unique
+  customerReturn CustomerReturn @relation(fields: [returnId], references: [id], onDelete: Restrict)
+  amountCents    Int
+  createdAt      DateTime       @default(now())
+
+  @@index([invoiceId, createdAt])
 }
 
 model Payment {

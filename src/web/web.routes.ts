@@ -17,6 +17,8 @@ import { createOrderSchema } from '../modules/orders/orders.types';
 import { cancelOrder, confirmOrder, createOrder, getOrder, listOrders } from '../modules/orders/orders.service';
 import { createInvoiceSchema, recordPaymentSchema } from '../modules/invoices/invoices.types';
 import { createInvoice, getInvoice, listInvoices, recordPayment } from '../modules/invoices/invoices.service';
+import { createInvoiceReturn } from '../modules/invoices/returns.service';
+import { createReturnSchema, returnIdempotencyKeySchema } from '../modules/invoices/returns.types';
 import { createSupplierSchema } from '../modules/suppliers/suppliers.types';
 import { createSupplier, getSupplier, listSuppliers } from '../modules/suppliers/suppliers.service';
 import { createPurchaseOrderSchema, idempotencyKeySchema, receivePurchaseOrderSchema } from '../modules/purchasing/purchasing.types';
@@ -141,6 +143,22 @@ const parseDollarsToCents = (value: unknown): number => {
   const cents = Number(dollars) * 100 + Number(fraction.padEnd(2, '0'));
   if (!Number.isSafeInteger(cents) || cents <= 0) throw badRequest('Enter a positive payment amount');
   return cents;
+};
+
+const parseReturnItems = (rawItems: unknown) => {
+  const values = Array.isArray(rawItems)
+    ? rawItems
+    : rawItems && typeof rawItems === 'object' ? Object.values(rawItems) : [];
+  return values.flatMap((raw) => {
+    const item = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+    const quantity = String(item.quantity ?? '').trim();
+    if (!quantity || quantity === '0') return [];
+    return [{
+      invoiceItemId: String(item.invoiceItemId ?? ''),
+      quantity: Number(quantity),
+      resaleable: item.resaleable === 'true',
+    }];
+  });
 };
 
 webRouter.get('/', (req, res) => res.redirect(req.user ? '/dashboard' : '/login'));
@@ -542,7 +560,7 @@ webRouter.get('/invoices', requireWebAuth, async (_req, res) => {
 
 webRouter.get('/invoices/:id', requireWebAuth, async (req, res) => {
   res.render('invoices/show', { invoice: await getInvoice(req.params.id), error: req.query.error,
-      paymentDraft: null, paymentFieldError: '', paymentIdempotencyKey: randomUUID() });
+      paymentDraft: null, paymentFieldError: '', paymentIdempotencyKey: randomUUID(), returnIdempotencyKey: randomUUID() });
 });
 
 webRouter.post('/invoices/:id/payments', requireWebPermission('payments.write'), async (req, res) => {
@@ -555,7 +573,8 @@ webRouter.post('/invoices/:id/payments', requireWebPermission('payments.write'),
     await recordPayment(req.params.id, input, req.user!.userId);
   } catch (err) {
     const invoice = await getInvoice(req.params.id);
-    const outstanding = invoice.totalCents - invoice.payments.reduce((sum, payment) => sum + payment.amountCents, 0);
+    const credited = invoice.creditNotes.reduce((sum, credit) => sum + credit.amountCents, 0);
+    const outstanding = Math.max(0, invoice.totalCents - credited - invoice.payments.reduce((sum, payment) => sum + payment.amountCents, 0));
     const overpayment = err instanceof AppError && err.message.includes('would exceed invoice total');
     const message = overpayment
       ? `Amount exceeds the current outstanding balance ($${(outstanding / 100).toFixed(2)})`
@@ -563,9 +582,24 @@ webRouter.post('/invoices/:id/payments', requireWebPermission('payments.write'),
     return res.status(formErrorStatus(err)).render('invoices/show', {
       invoice, error: message, paymentDraft: textDraft(req.body, ['amountDollars', 'method']),
       paymentIdempotencyKey: req.body.idempotencyKey || randomUUID(),
+      returnIdempotencyKey: randomUUID(),
       paymentFieldError: overpayment || err instanceof ZodError && err.issues.some((issue) => issue.path[0] === 'amountCents') || err instanceof AppError && err.message.startsWith('Enter a')
         ? message : '',
     });
+  }
+  res.redirect(`/invoices/${req.params.id}`);
+});
+
+webRouter.post('/invoices/:id/returns', requireWebPermission('returns.write'), async (req, res) => {
+  try {
+    const input = createReturnSchema.parse({
+      reason: req.body.reason,
+      items: parseReturnItems(req.body.items),
+    });
+    const idempotencyKey = returnIdempotencyKeySchema.parse(req.body.idempotencyKey);
+    await createInvoiceReturn(req.params.id, idempotencyKey, input, req.user!.userId);
+  } catch (err) {
+    return res.redirect(`/invoices/${req.params.id}?error=${encodeURIComponent(errorMessage(err))}`);
   }
   res.redirect(`/invoices/${req.params.id}`);
 });

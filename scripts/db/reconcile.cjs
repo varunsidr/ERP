@@ -42,11 +42,18 @@ const runChecks = async (tx) => {
       SELECT SUM(p."amountCents") AS cents
       FROM "Payment" p WHERE p."invoiceId" = i.id
     ) payments ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT SUM(cn."amountCents") AS cents
+      FROM "CreditNote" cn WHERE cn."invoiceId" = i.id
+    ) credits ON TRUE
     WHERE i."totalCents" <> COALESCE(lines.cents, 0)
       OR COALESCE(payments.cents, 0) > i."totalCents"
       OR (i.status = 'PAID' AND COALESCE(payments.cents, 0) <> i."totalCents")
-      OR (i.status = 'PENDING' AND i."totalCents" > 0 AND COALESCE(payments.cents, 0) >= i."totalCents")
-      OR i.status NOT IN ('PENDING', 'PAID')
+      OR (i.status = 'PENDING' AND i."totalCents" > 0
+        AND COALESCE(payments.cents, 0) + COALESCE(credits.cents, 0) >= i."totalCents")
+      OR (i.status = 'SETTLED' AND COALESCE(payments.cents, 0) + COALESCE(credits.cents, 0) < i."totalCents")
+      OR (i.status = 'SETTLED' AND COALESCE(credits.cents, 0) = 0)
+      OR i.status NOT IN ('PENDING', 'PAID', 'SETTLED')
   `);
 
   await check('invoice lines preserve their sales-order price and quantities', tx.$queryRaw`
@@ -99,10 +106,23 @@ const runChecks = async (tx) => {
     WHERE COALESCE(b.quantity, 0) <> poi."receivedQty"
       OR poi."receivedQty" < 0 OR poi."receivedQty" > poi.quantity
       OR (po.status = 'RECEIVED' AND poi."receivedQty" <> poi.quantity)
-      OR (po.status = 'PARTIALLY_RECEIVED' AND (poi."receivedQty" = 0 OR poi."receivedQty" = poi.quantity))
       OR (po.status = 'ORDERED' AND poi."receivedQty" <> 0)
       OR (po.status = 'RECEIVED' AND po."receivedAt" IS NULL)
       OR (po.status = 'PARTIALLY_RECEIVED' AND po."receivedAt" IS NOT NULL)
+  `);
+
+  await check('purchase order status matches aggregate received quantities', tx.$queryRaw`
+    SELECT COUNT(*)::int AS violations
+    FROM (
+      SELECT po.id, po.status, SUM(poi.quantity)::bigint AS ordered,
+        SUM(poi."receivedQty")::bigint AS received
+      FROM "PurchaseOrder" po
+      JOIN "PurchaseOrderItem" poi ON poi."purchaseOrderId" = po.id
+      GROUP BY po.id, po.status
+    ) totals
+    WHERE (status = 'ORDERED' AND received <> 0)
+      OR (status = 'PARTIALLY_RECEIVED' AND (received = 0 OR received >= ordered))
+      OR (status = 'RECEIVED' AND received <> ordered)
   `);
 
   await check('purchase receipt lines belong to their parent purchase order', tx.$queryRaw`
@@ -130,6 +150,58 @@ const runChecks = async (tx) => {
       ON a."orderId" = e."orderId" AND a."productId" = e."productId"
     WHERE COALESCE(e.quantity, 0) <> -COALESCE(a.quantity, 0)
       OR COALESCE(e.quantity, 0) <> -COALESCE(a.reserved, 0)
+  `);
+
+  await check('customer returns and credit notes match invoiced quantities and snapshots', tx.$queryRaw`
+    WITH returned AS (
+      SELECT ri."invoiceItemId", SUM(ri.quantity)::bigint AS quantity
+      FROM "ReturnItem" ri
+      GROUP BY ri."invoiceItemId"
+    ), return_amounts AS (
+      SELECT cr.id AS "returnId", cr."invoiceId",
+        SUM(ri.quantity * ii."unitPriceCents")::bigint AS amount,
+        COUNT(ri.id)::int AS item_count,
+        BOOL_AND(ri."productId" = ii."productId" AND ii."invoiceId" = cr."invoiceId") AS references_match
+      FROM "CustomerReturn" cr
+      JOIN "ReturnItem" ri ON ri."returnId" = cr.id
+      JOIN "InvoiceItem" ii ON ii.id = ri."invoiceItemId"
+      GROUP BY cr.id, cr."invoiceId"
+    )
+    SELECT COUNT(*)::int AS violations
+    FROM "CustomerReturn" cr
+    LEFT JOIN return_amounts ra ON ra."returnId" = cr.id
+    LEFT JOIN "CreditNote" cn ON cn."returnId" = cr.id
+    WHERE COALESCE(ra.item_count, 0) = 0
+      OR COALESCE(ra.references_match, false) = false
+      OR cr."amountCents" <> COALESCE(ra.amount, 0)
+      OR cn.id IS NULL
+      OR cn."invoiceId" <> cr."invoiceId"
+      OR cn."amountCents" <> cr."amountCents"
+    UNION ALL
+    SELECT COUNT(*)::int AS violations
+    FROM returned r
+    JOIN "InvoiceItem" ii ON ii.id = r."invoiceItemId"
+    WHERE r.quantity > ii.quantity
+  `);
+
+  await check('resaleable return movements match credited return lines', tx.$queryRaw`
+    WITH expected AS (
+      SELECT ri."returnId", ri."productId", SUM(ri.quantity)::bigint AS quantity
+      FROM "ReturnItem" ri
+      WHERE ri.resaleable = true
+      GROUP BY ri."returnId", ri."productId"
+    ), actual AS (
+      SELECT im."referenceId" AS "returnId", im."productId",
+        SUM(im."quantityDelta")::bigint AS quantity, SUM(im."reservedDelta")::bigint AS reserved
+      FROM "InventoryMovement" im
+      WHERE im.type = 'RETURN_RESTOCK' AND im."referenceType" = 'RETURN'
+      GROUP BY im."referenceId", im."productId"
+    )
+    SELECT COUNT(*)::int AS violations
+    FROM expected e FULL OUTER JOIN actual a
+      ON a."returnId" = e."returnId" AND a."productId" = e."productId"
+    WHERE COALESCE(e.quantity, 0) <> COALESCE(a.quantity, 0)
+      OR COALESCE(a.reserved, 0) <> 0
   `);
 
   await check('reservation movements match sales-order state', tx.$queryRaw`

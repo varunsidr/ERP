@@ -16,8 +16,10 @@ do not change the underlying transactions.
 
 Open receivables, remaining ordered purchase commitments and low-stock alerts are
 **current snapshots**, unaffected by the period selector. Receivables are
-unpaid invoice amounts after partial payments. The overdue figure is the
-unpaid amount on invoices whose due date is before today. Due dates default to
+unpaid invoice amounts after payments and issued credit notes. Customer account
+credits in excess of an invoice balance are shown on the customer and invoice
+pages; they are not automatically applied to other invoices and do not represent
+a cash refund. The overdue figure is the unpaid amount on invoices whose due date is before today. Due dates default to
 30 days after issuance and can be set when an invoice is created. Ordered
 commitments exclude draft purchase orders.
 Stock alerts mean a product's available-minus-reserved quantity is below its

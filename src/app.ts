@@ -17,6 +17,8 @@ import { prisma } from './lib/prisma';
 import { parseCorsOrigins } from './config/runtime-config';
 import { requestLoggingMiddleware } from './middleware/request-logging.middleware';
 import { secureCookiesAndTransport } from './config/environment';
+import { testSupportEnabled } from './lib/test-support';
+import { testSupportRouter } from './test-support/test-support.routes';
 
 export const createApp = (trustProxyHops = 0, releaseSha = process.env.APP_RELEASE_SHA || 'development') => {
   const app = express();
@@ -55,6 +57,8 @@ export const createApp = (trustProxyHops = 0, releaseSha = process.env.APP_RELEA
       res.status(503).json({ status: 'unavailable' });
     }
   });
+
+  if (testSupportEnabled()) app.use('/__test', testSupportRouter);
 
   app.use('/api/auth', authRouter);
   app.use('/api/customers', customersRouter);

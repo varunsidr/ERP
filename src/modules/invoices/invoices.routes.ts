@@ -3,6 +3,8 @@ import { asyncHandler } from '../../middleware/error.middleware';
 import { requireAuth, requirePermission } from '../../middleware/auth.middleware';
 import { createInvoiceSchema, recordPaymentSchema } from './invoices.types';
 import { createInvoice, getInvoice, listInvoices, recordPayment } from './invoices.service';
+import { createInvoiceReturn } from './returns.service';
+import { createReturnSchema, returnIdempotencyKeySchema } from './returns.types';
 
 export const invoicesRouter = Router();
 invoicesRouter.use(requireAuth);
@@ -39,5 +41,15 @@ invoicesRouter.post(
       idempotencyKey: req.get('Idempotency-Key') ?? req.body?.idempotencyKey,
     });
     res.status(200).json(await recordPayment(req.params.id, input, req.user!.userId));
+  }),
+);
+
+invoicesRouter.post(
+  '/:id/returns',
+  requirePermission('returns.write'),
+  asyncHandler(async (req, res) => {
+    const input = createReturnSchema.parse(req.body);
+    const idempotencyKey = returnIdempotencyKeySchema.parse(req.get('Idempotency-Key') ?? req.body?.idempotencyKey);
+    res.status(201).json(await createInvoiceReturn(req.params.id, idempotencyKey, input, req.user!.userId));
   }),
 );

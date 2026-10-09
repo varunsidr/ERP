@@ -21,11 +21,12 @@ export type InventoryMovementType =
   | 'PURCHASE_RECEIPT'
   | 'ORDER_RESERVATION'
   | 'ORDER_RELEASE'
-  | 'SALE_CONSUMPTION';
+  | 'SALE_CONSUMPTION'
+  | 'RETURN_RESTOCK';
 
 export interface InventoryMovementContext {
   type: InventoryMovementType;
-  referenceType?: 'ORDER' | 'PURCHASE_ORDER' | 'MANUAL';
+  referenceType?: 'ORDER' | 'PURCHASE_ORDER' | 'MANUAL' | 'RETURN';
   referenceId?: string;
   note?: string;
   idempotencyKeyHash?: string;
