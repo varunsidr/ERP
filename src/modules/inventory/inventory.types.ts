@@ -26,7 +26,7 @@ export type InventoryMovementType =
 
 export interface InventoryMovementContext {
   type: InventoryMovementType;
-  referenceType?: 'ORDER' | 'PURCHASE_ORDER' | 'MANUAL' | 'RETURN';
+  referenceType?: 'ORDER' | 'SHIPMENT' | 'PURCHASE_ORDER' | 'MANUAL' | 'RETURN';
   referenceId?: string;
   note?: string;
   idempotencyKeyHash?: string;

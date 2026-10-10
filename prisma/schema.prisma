@@ -171,6 +171,7 @@ model Order {
   customer    Customer    @relation(fields: [customerId], references: [id])
   status      String      @default("DRAFT")
   items       OrderItem[]
+  shipments   Shipment[]
   invoice     Invoice?
   createdAt   DateTime    @default(now())
   confirmedAt DateTime?
@@ -184,6 +185,33 @@ model OrderItem {
   product        Product @relation(fields: [productId], references: [id])
   quantity       Int
   unitPriceCents Int
+  shipments      ShipmentItem[]
+}
+
+model Shipment {
+  id             String         @id @default(cuid())
+  orderId        String
+  order          Order          @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  idempotencyKey String
+  requestHash    String
+  dispatchedAt   DateTime       @default(now())
+  createdAt      DateTime       @default(now())
+  items          ShipmentItem[]
+
+  @@unique([orderId, idempotencyKey])
+  @@index([orderId, dispatchedAt])
+}
+
+model ShipmentItem {
+  id          String      @id @default(cuid())
+  shipmentId  String
+  shipment    Shipment    @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  orderItemId String
+  orderItem   OrderItem   @relation(fields: [orderItemId], references: [id], onDelete: Restrict)
+  quantity    Int
+
+  @@unique([shipmentId, orderItemId])
+  @@index([orderItemId])
 }
 
 model Invoice {

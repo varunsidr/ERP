@@ -391,9 +391,9 @@ data-changing transaction or production deployment was tested in this pass.
 
 - Open sales = draft orders + confirmed orders without an invoice. Show invoiced
   orders as their own completed stage rather than leaving them "open."
-- Sales-stage bar denominator = non-cancelled orders; segments are Draft,
-  Ready to invoice, and Invoiced. Label counts and percentages; show a neutral
-  empty state when there are no orders.
+- Sales-stage bar denominator = non-cancelled orders; segments distinguish
+  Draft, Ready to ship, Partially shipped, Ready to invoice, and Invoiced. Label
+  counts and percentages; show a neutral empty state when there are no orders.
 - Stock meter = usable quantity (on-hand minus reserved) against the existing
   10-unit alert threshold. Zero/negative is critical, 1–4 warning, 5–9 watch.
   The threshold is a demo rule, not a per-product reorder policy.

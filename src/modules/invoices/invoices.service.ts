@@ -1,9 +1,9 @@
 import { prisma } from '../../lib/prisma';
 import { badRequest, conflict, notFound } from '../../lib/errors';
-import { consumeReservedStock } from '../inventory/inventory.service';
 import type { CreateInvoiceInput, RecordPaymentInput } from './invoices.types';
 import { invoiceDueAt } from './invoice.rules';
 import { recordAuditEvent } from '../audit/audit.service';
+import { shippedQuantitiesByOrderItem } from '../orders/order.rules';
 
 const invoiceInclude = {
   items: { include: { product: true, returns: true } },
@@ -26,9 +26,7 @@ export const getInvoice = async (id: string) => {
   return invoice;
 };
 
-// Generating an invoice snapshots the order's items/prices, consumes the reserved
-// stock those items were holding (goods are considered shipped/billed at this point
-// in our simplified workflow), and totals the invoice from the line items.
+// Invoices are issued only after every ordered unit has been dispatched.
 export const createInvoice = async (input: CreateInvoiceInput, actorId: string) => {
   return prisma.$transaction(async (tx) => {
     const locked = await tx.$queryRaw<Array<{ id: string }>>`
@@ -37,7 +35,7 @@ export const createInvoice = async (input: CreateInvoiceInput, actorId: string) 
     if (!locked.length) throw notFound(`Order ${input.orderId} not found`);
     const order = await tx.order.findUnique({
       where: { id: input.orderId },
-      include: { items: true, invoice: true },
+      include: { items: true, invoice: true, shipments: { include: { items: true } } },
     });
     if (!order) throw notFound(`Order ${input.orderId} not found`);
     // The order is locked above, so a retry after a committed issuance can safely
@@ -50,10 +48,10 @@ export const createInvoice = async (input: CreateInvoiceInput, actorId: string) 
     if (order.status !== 'CONFIRMED') {
       throw badRequest(`Only CONFIRMED orders can be invoiced (current status: ${order.status})`);
     }
+    const shippedByOrderItem = shippedQuantitiesByOrderItem(order);
+    const notFullyShipped = order.items.some(item => (shippedByOrderItem.get(item.id) ?? 0) !== item.quantity);
+    if (notFullyShipped) throw badRequest('Ship all ordered quantities before issuing the invoice');
     const totalCents = order.items.reduce((sum, item) => sum + item.quantity * item.unitPriceCents, 0);
-    for (const item of order.items) {
-      await consumeReservedStock(tx, item.productId, item.quantity, order.id);
-    }
 
     const invoice = await tx.invoice.create({
       data: {

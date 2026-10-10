@@ -1,4 +1,4 @@
-<% const money = cents => `$${(cents / 100).toFixed(2)}`; const activeSales = salesStages.draft + salesStages.ready + salesStages.invoiced; const share = count => activeSales ? Math.round(count / activeSales * 100) : 0; %>
+<% const money = cents => `$${(cents / 100).toFixed(2)}`; const activeSales = salesStages.draft + salesStages.readyToShip + salesStages.partiallyShipped + salesStages.readyToInvoice + salesStages.invoiced; const share = count => activeSales ? Math.round(count / activeSales * 100) : 0; %>
 <%- include('partials/header') %>
   <section class="page-heading">
     <div>
@@ -10,7 +10,7 @@
   </section>
 
   <section class="stats" aria-label="Business summary" data-testid="dashboard-summary">
-    <a class="stat" href="/orders"><span class="stat-label">Open sales</span><strong class="stat-value" data-testid="open-sales-count"><%= pendingOrders %></strong><small>Draft + ready to invoice</small></a>
+    <a class="stat" href="/orders"><span class="stat-label">Open sales</span><strong class="stat-value" data-testid="open-sales-count"><%= pendingOrders %></strong><small>Draft, shipping, and ready to invoice</small></a>
     <a class="stat" href="/purchase-orders"><span class="stat-label">Open purchases</span><strong class="stat-value" data-testid="open-purchases-count"><%= openPurchaseOrders %></strong><small>Draft + ordered</small></a>
     <a class="stat" href="/invoices"><span class="stat-label">Receivables</span><strong class="stat-value" data-testid="receivables-value"><%= money(outstandingInvoiceCents) %></strong><small>Outstanding balance</small></a>
     <a class="stat" href="/invoices"><span class="stat-label">Paid invoices</span><strong class="stat-value"><%= money(paidRevenueCents) %></strong><small>Lifetime billed value paid</small></a>
@@ -23,8 +23,8 @@
         <div class="panel-heading"><div><h3>Sales orders</h3><p class="section-note">Latest customer demand and billing stage</p></div><a href="/orders">All sales orders</a></div>
         <% if (recentOrders.length) { %>
           <div class="table-wrap responsive-summary-wrap"><table class="table-plain responsive-summary-table dashboard-recent-table"><thead><tr><th>Customer</th><th>Stage</th><th class="numeric">Order value</th><th>Created</th></tr></thead><tbody>
-            <% recentOrders.forEach(function (order) { const total = order.items.reduce((sum, item) => sum + item.quantity * item.unitPriceCents, 0); const stage = order.invoice ? 'INVOICED' : order.status; %>
-              <tr data-testid="recent-sales-order"><td data-label="Customer"><a href="/orders/<%= order.id %>"><strong><%= order.customer.name %></strong></a></td><td data-label="Stage"><span class="status status-<%= order.invoice ? 'paid' : order.status.toLowerCase() %>"><%= stage %></span></td><td class="numeric" data-label="Order value"><%= money(total) %></td><td data-label="Created"><%= new Date(order.createdAt).toLocaleDateString('en-US') %></td></tr>
+            <% recentOrders.forEach(function (order) { const total = order.items.reduce((sum, item) => sum + item.quantity * item.unitPriceCents, 0); const stage = order.fulfillmentStatus; %>
+                <tr data-testid="recent-sales-order"><td data-label="Customer"><a href="/orders/<%= order.id %>"><strong><%= order.customer.name %></strong></a></td><td data-label="Stage"><span class="status status-<%= stage.toLowerCase() %>"><%= stage.replaceAll('_', ' ') %></span></td><td class="numeric" data-label="Order value"><%= money(total) %></td><td data-label="Created"><%= new Date(order.createdAt).toLocaleDateString('en-US') %></td></tr>
             <% }) %>
           </tbody></table></div>
         <% } else { %><div class="empty">No sales orders yet.<% if (locals.can?.('orders.write')) { %> <a href="/orders/new">Create the first order</a>.<% } %></div><% } %>
@@ -48,12 +48,16 @@
         <% if (activeSales) { %>
           <div class="progress-track" aria-hidden="true" data-testid="sales-flow-bar">
             <span class="progress-segment progress-draft" style="width:<%= salesStages.draft / activeSales * 100 %>%"></span>
-            <span class="progress-segment progress-ready" style="width:<%= salesStages.ready / activeSales * 100 %>%"></span>
+            <span class="progress-segment progress-shipping" style="width:<%= salesStages.readyToShip / activeSales * 100 %>%"></span>
+            <span class="progress-segment progress-partial" style="width:<%= salesStages.partiallyShipped / activeSales * 100 %>%"></span>
+            <span class="progress-segment progress-invoice" style="width:<%= salesStages.readyToInvoice / activeSales * 100 %>%"></span>
             <span class="progress-segment progress-done" style="width:<%= salesStages.invoiced / activeSales * 100 %>%"></span>
           </div>
           <div class="progress-legend" aria-label="Sales order stages">
             <div><span><i class="legend-dot progress-draft"></i>Draft</span><strong><%= salesStages.draft %> · <%= share(salesStages.draft) %>%</strong></div>
-            <div><span><i class="legend-dot progress-ready"></i>Ready to invoice</span><strong><%= salesStages.ready %> · <%= share(salesStages.ready) %>%</strong></div>
+            <div><span><i class="legend-dot progress-shipping"></i>Ready to ship</span><strong><%= salesStages.readyToShip %> · <%= share(salesStages.readyToShip) %>%</strong></div>
+            <div><span><i class="legend-dot progress-partial"></i>Partially shipped</span><strong><%= salesStages.partiallyShipped %> · <%= share(salesStages.partiallyShipped) %>%</strong></div>
+            <div><span><i class="legend-dot progress-invoice"></i>Ready to invoice</span><strong><%= salesStages.readyToInvoice %> · <%= share(salesStages.readyToInvoice) %>%</strong></div>
             <div><span><i class="legend-dot progress-done"></i>Invoiced</span><strong><%= salesStages.invoiced %> · <%= share(salesStages.invoiced) %>%</strong></div>
           </div>
           <% if (salesStages.cancelled) { %><p class="section-note"><%= salesStages.cancelled %> cancelled orders excluded from the bar.</p><% } %>

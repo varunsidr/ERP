@@ -10,7 +10,8 @@ becoming a general purpose SaaS platform.
 The application already connects customers, suppliers, products, inventory,
 purchase orders, sales orders, invoices, payments, and operational analytics.
 Purchase receipts add stock, including partial deliveries; confirming a sale
-reserves stock; invoicing consumes reserved stock. Price and cost snapshots
+reserves stock; partial shipment dispatch consumes the shipped reservation, and
+invoicing is available after the full order ships. Price and cost snapshots
 preserve historical document amounts.
 There is a movement history, REST API, server rendered interface, Prisma
 migrations, and a separate change aware Playwright workflow.
@@ -62,8 +63,8 @@ next milestone.
 1. Write a one page story for the fictional distributor: users, products, a
    supplier, a customer, and the purchase to sale to payment journey.
 2. Document the allowed state transitions for purchase orders, sales orders,
-   invoices, and inventory. Decide whether invoice creation means shipment in
-   this intentionally simplified model.
+   shipments, invoices, and inventory. Sales invoices are issued after all
+   ordered quantities have shipped; shipment dispatch consumes reserved stock.
 3. Write a permission matrix for Admin, Sales, Purchasing, and Inventory roles.
    Include every page and API mutation, plus analytics export.
 4. **Partially complete:** capture representative desktop/mobile pages and
@@ -173,15 +174,15 @@ Build in this order, stopping when the portfolio story is complete:
 3. **Partially implemented:** invoices have editable-at-issue due dates and
    customers show outstanding and overdue balances. Invoice returns now create
    auditable credit notes, enforce cumulative return quantities, and restock
-   only items marked resaleable. Still add explicit partial shipment/
-   fulfilment and continue the return workflow with application of customer
-   credits to other invoices.
+   only items marked resaleable. Orders support partial shipment history and
+   consume reserved stock only when dispatched. Next, handle cancellation of
+   unshipped remainder and apply customer credits to other invoices.
 4. **Usability at volume:** server side search, filters, pagination, clearer
    validation errors, responsive tables, accessibility review, and realistic
    demo data.
 
-**Exit:** A user can trace a purchase through stock, a sale, an invoice, a
-payment, and a return while balances remain explainable.
+**Exit:** A user can trace a purchase through stock, a sale, one or more
+shipments, an invoice, a payment, and a return while balances remain explainable.
 
 ### 5. Adjacent modules (optional, one at a time)
 
@@ -197,10 +198,13 @@ screens or imply accounting behavior that does not exist.
    this version does not issue cash refunds or apply the credit to a different
    invoice. Expand return tests and reconciliation, then design cross-invoice
    credit application as a separate balance-safe workflow.
-2. **Shipment and delivery records:** make fulfilment explicit instead of
-   treating invoice issuance as shipment. Track shipped quantities and dates,
-   support partial fulfilment, and consume reserved stock only when a shipment
-   is dispatched. Define how existing orders are represented during migration.
+2. **Shipment and delivery records — first slice implemented:** shipments track
+   dispatched quantities and timestamps, may partially fulfil an order, and
+   consume reserved stock at dispatch. Existing invoiced orders are backfilled
+   as shipped history. The initial version allows one invoice only after all
+   ordered quantities are shipped and blocks cancellation after a dispatch.
+   Next, define how to close an order with an unshipped remainder without
+   misrepresenting the already-dispatched goods.
 3. **Multiple inventory locations:** introduce warehouses/locations, transfers,
    and location-level available/reserved quantities only after the single-location
    flow is reliable. Preserve a clear aggregate stock view and reconcile

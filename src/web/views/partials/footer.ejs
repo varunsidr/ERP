@@ -115,7 +115,7 @@
             rowsInTable.sort(function (a, b) {
               const left = a.cells[column]?.innerText.trim() || '';
               const right = b.cells[column]?.innerText.trim() || '';
-              const statusRank = { DRAFT: 0, PENDING: 0, CONFIRMED: 1, ORDERED: 1, PARTIALLY_RECEIVED: 2, INVOICED: 2, RECEIVED: 3, PAID: 3, CANCELLED: 4 };
+              const statusRank = { DRAFT: 0, PENDING: 0, CONFIRMED: 1, ORDERED: 1, 'READY TO SHIP': 1, PARTIALLY_RECEIVED: 2, 'PARTIALLY SHIPPED': 2, 'READY TO INVOICE': 3, INVOICED: 4, RECEIVED: 3, PAID: 3, CANCELLED: 5 };
               const leftStatus = a.cells[column]?.querySelector('.status')?.textContent.trim().toUpperCase();
               const rightStatus = b.cells[column]?.querySelector('.status')?.textContent.trim().toUpperCase();
               const bothStatuses = Boolean(leftStatus && rightStatus && leftStatus in statusRank && rightStatus in statusRank);

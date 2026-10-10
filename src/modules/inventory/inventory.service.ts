@@ -170,8 +170,8 @@ export const releaseStock = async (client: Client, productId: string, quantity: 
   return updated;
 };
 
-// Consumes reserved quantity out of on-hand stock (e.g. when an order ships/is invoiced).
-export const consumeReservedStock = async (client: Client, productId: string, quantity: number, orderId?: string) => {
+// Consumes reserved quantity out of on-hand stock when a shipment is dispatched.
+export const consumeReservedStock = async (client: Client, productId: string, quantity: number, shipmentId: string) => {
   const item = await lockInventoryItem(client, productId);
   if (item.reservedQty < quantity || item.availableQty < quantity) {
     throw badRequest(`Cannot consume ${quantity} reserved units for product ${productId}`);
@@ -185,8 +185,8 @@ export const consumeReservedStock = async (client: Client, productId: string, qu
   });
   await recordMovement(client, productId, -quantity, -quantity, {
     type: 'SALE_CONSUMPTION',
-    referenceType: 'ORDER',
-    referenceId: orderId,
+    referenceType: 'SHIPMENT',
+    referenceId: shipmentId,
   });
   return updated;
 };

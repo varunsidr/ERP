@@ -28,6 +28,8 @@ testSupportRouter.post('/reset', async (req, res, next) => {
       prisma.purchaseOrderItem.deleteMany(),
       prisma.purchaseOrder.deleteMany(),
       prisma.payment.deleteMany(),
+      prisma.shipmentItem.deleteMany(),
+      prisma.shipment.deleteMany(),
       prisma.creditNote.deleteMany(),
       prisma.returnItem.deleteMany(),
       prisma.customerReturn.deleteMany(),

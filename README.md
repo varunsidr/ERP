@@ -17,20 +17,21 @@ The application includes:
 - self-service password changes verify the current password and revoke existing sessions
 - customers, suppliers, products, and inventory
 - sales orders, purchase orders, invoices, and payments
-- atomic stock reservation, receipt, release, and consumption workflows
+- atomic stock reservation, partial shipment, purchase receipt, release, and consumption workflows
 - partial purchase deliveries with receipt history and reasoned stock count corrections
 - per-product reorder points that drive inventory, dashboard, and analytics alerts
 - Prisma migrations and deterministic development seed data
-- an Admin-only activity log for committed account, stock, sales, purchasing, invoice, and payment actions
+- an Admin-only activity log for committed account, stock, sales, shipment, purchasing, invoice, and payment actions
 - an authenticated operational analytics cockpit with period filters and daily CSV export
 
 See the [product and production-readiness roadmap](docs/ROADMAP.md) for the
 prioritized milestones, acceptance criteria, and project scope.
 See [access control](docs/ACCESS_CONTROL.md) for the permission matrix and remaining security work.
 `npm run db:reconcile` performs read-only cross-record checks for inventory
-reservations, order/invoice snapshots, payment totals, purchase receipts,
-customer-return quantities, credit notes, and receipt/consumption/restock
-movements. It reports mismatching counts without printing record identifiers.
+reservations, order/invoice snapshots, shipment quantities and consumption,
+payment totals, purchase receipts, customer-return quantities, credit notes,
+and receipt/consumption/restock movements. It reports mismatching counts
+without printing record identifiers.
 See the [database recovery runbook](docs/OPERATIONS_RECOVERY.md) for the
 staging restore and cutover procedure; it still needs a staging rehearsal.
 See the [staging deployment runbook](docs/STAGING_DEPLOYMENT.md) for the

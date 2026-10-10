@@ -15,6 +15,8 @@ import { adjustStock } from '../modules/inventory/inventory.service';
 import { adjustStockSchema, stockIdempotencyKeySchema } from '../modules/inventory/inventory.types';
 import { createOrderSchema } from '../modules/orders/orders.types';
 import { cancelOrder, confirmOrder, createOrder, getOrder, listOrders } from '../modules/orders/orders.service';
+import { createShipment } from '../modules/orders/shipments.service';
+import { createShipmentSchema, shipmentIdempotencyKeySchema } from '../modules/orders/shipments.types';
 import { createInvoiceSchema, recordPaymentSchema } from '../modules/invoices/invoices.types';
 import { createInvoice, getInvoice, listInvoices, recordPayment } from '../modules/invoices/invoices.service';
 import { createInvoiceReturn } from '../modules/invoices/returns.service';
@@ -101,6 +103,20 @@ const parseOrderItems = (rawItems: unknown): { productId: string; quantity: numb
     if (!productId && !quantity) return [];
     if (!productId || !quantity) throw badRequest(`Complete product and quantity for line ${index + 1}`);
     return [{ productId, quantity: Number(quantity) }];
+  });
+};
+
+const parseShipmentItems = (rawItems: unknown) => {
+  const values = Array.isArray(rawItems)
+    ? rawItems
+    : rawItems && typeof rawItems === 'object' ? Object.values(rawItems) : [];
+  return values.flatMap((raw) => {
+    const item = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+    const quantity = String(item.quantity ?? '').trim();
+    if (!quantity || quantity === '0') return [];
+    const orderItemId = String(item.orderItemId ?? '').trim();
+    if (!orderItemId) throw badRequest('Choose a sales order line for every shipped quantity');
+    return [{ orderItemId, quantity: Number(quantity) }];
   });
 };
 
@@ -370,10 +386,12 @@ webRouter.get('/dashboard', requireWebAuth, async (req, res) => {
     0,
   );
   const salesStages = {
-    draft: orders.filter((order) => order.status === 'DRAFT').length,
-    ready: orders.filter((order) => order.status === 'CONFIRMED' && !order.invoice).length,
-    invoiced: orders.filter((order) => Boolean(order.invoice)).length,
-    cancelled: orders.filter((order) => order.status === 'CANCELLED').length,
+    draft: orders.filter((order) => order.fulfillmentStatus === 'DRAFT').length,
+    readyToShip: orders.filter((order) => order.fulfillmentStatus === 'READY_TO_SHIP').length,
+    partiallyShipped: orders.filter((order) => order.fulfillmentStatus === 'PARTIALLY_SHIPPED').length,
+    readyToInvoice: orders.filter((order) => order.fulfillmentStatus === 'READY_TO_INVOICE').length,
+    invoiced: orders.filter((order) => order.fulfillmentStatus === 'INVOICED').length,
+    cancelled: orders.filter((order) => order.fulfillmentStatus === 'CANCELLED').length,
   };
   const lowStockProducts = products.filter((product) => {
     const inventory = product.inventoryItem;
@@ -386,7 +404,7 @@ webRouter.get('/dashboard', requireWebAuth, async (req, res) => {
     productCount: products.length,
     orderCount: orders.length,
     salesStages,
-    pendingOrders: salesStages.draft + salesStages.ready,
+    pendingOrders: salesStages.draft + salesStages.readyToShip + salesStages.partiallyShipped + salesStages.readyToInvoice,
     openPurchaseOrders: purchaseOrders.filter((order) => order.status === 'DRAFT' || order.status === 'ORDERED' || order.status === 'PARTIALLY_RECEIVED').length,
     outstandingInvoiceCents,
     paidRevenueCents: invoices
@@ -523,6 +541,7 @@ webRouter.get('/orders/:id', requireWebAuth, async (req, res) => {
   res.render('orders/show', {
     order: await getOrder(req.params.id), error: req.query.error,
     defaultInvoiceDueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+    shipmentIdempotencyKey: randomUUID(),
   });
 });
 
@@ -538,6 +557,17 @@ webRouter.post('/orders/:id/confirm', requireWebPermission('orders.write'), asyn
 webRouter.post('/orders/:id/cancel', requireWebPermission('orders.write'), async (req, res) => {
   try {
     await cancelOrder(req.params.id, req.user!.userId);
+  } catch (err) {
+    return res.redirect(`/orders/${req.params.id}?error=${encodeURIComponent(errorMessage(err))}`);
+  }
+  res.redirect(`/orders/${req.params.id}`);
+});
+
+webRouter.post('/orders/:id/shipments', requireWebPermission('shipments.write'), async (req, res) => {
+  try {
+    const input = createShipmentSchema.parse({ items: parseShipmentItems(req.body.items) });
+    const idempotencyKey = shipmentIdempotencyKeySchema.parse(req.body.idempotencyKey);
+    await createShipment(req.params.id, idempotencyKey, input, req.user!.userId);
   } catch (err) {
     return res.redirect(`/orders/${req.params.id}?error=${encodeURIComponent(errorMessage(err))}`);
   }

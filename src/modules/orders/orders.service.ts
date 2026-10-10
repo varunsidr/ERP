@@ -3,21 +3,29 @@ import { badRequest, notFound } from '../../lib/errors';
 import { reserveStock, releaseStock } from '../inventory/inventory.service';
 import type { CreateOrderInput } from './orders.types';
 import { recordAuditEvent } from '../audit/audit.service';
+import { withFulfillment } from './order.rules';
 
-const orderInclude = { items: { include: { product: true } }, customer: true, invoice: true } as const;
+const orderInclude = {
+  items: { include: { product: true } },
+  customer: true,
+  invoice: true,
+  shipments: { orderBy: { dispatchedAt: 'asc' as const }, include: { items: true } },
+} as const;
 
-export const listOrders = () =>
-  prisma.order.findMany({
+export const listOrders = async () => {
+  const orders = await prisma.order.findMany({
     include: orderInclude,
     orderBy: { createdAt: 'desc' },
   });
+  return orders.map(withFulfillment);
+};
 
 export const getOrder = async (id: string) => {
   const order = await prisma.order.findUnique({ where: { id }, include: orderInclude });
   if (!order) {
     throw notFound(`Order ${id} not found`);
   }
-  return order;
+  return withFulfillment(order);
 };
 
 // Order is created as DRAFT with a price snapshot per item (protects historical
@@ -54,7 +62,7 @@ export const createOrder = async (input: CreateOrderInput, actorId: string) => {
     });
     await recordAuditEvent(tx, { actorId, action: 'order.created', entityType: 'Order', entityId: order.id,
       summary: `Created sales order for ${order.customer.name}` });
-    return order;
+    return withFulfillment(order);
   });
 };
 
@@ -81,7 +89,7 @@ export const confirmOrder = async (id: string, actorId: string) => {
     });
     await recordAuditEvent(tx, { actorId, action: 'order.confirmed', entityType: 'Order', entityId: id,
       summary: `Confirmed sales order and reserved stock for ${order.customer.name}` });
-    return confirmed;
+    return withFulfillment(confirmed);
   });
 };
 
@@ -97,6 +105,7 @@ export const cancelOrder = async (id: string, actorId: string) => {
     if (!order) throw notFound(`Order ${id} not found`);
     if (order.status === 'CANCELLED') throw badRequest('Order is already cancelled');
     if (order.invoice) throw badRequest('An invoiced order cannot be cancelled');
+    if (order.shipments.length) throw badRequest('An order cannot be cancelled after any items have shipped');
     if (order.status === 'CONFIRMED') {
       for (const item of order.items) {
         await releaseStock(tx, item.productId, item.quantity, order.id);
@@ -105,6 +114,6 @@ export const cancelOrder = async (id: string, actorId: string) => {
     const cancelled = await tx.order.update({ where: { id }, data: { status: 'CANCELLED' }, include: orderInclude });
     await recordAuditEvent(tx, { actorId, action: 'order.cancelled', entityType: 'Order', entityId: id,
       summary: `Cancelled sales order for ${order.customer.name}` });
-    return cancelled;
+    return withFulfillment(cancelled);
   });
 };

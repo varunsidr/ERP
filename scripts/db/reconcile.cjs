@@ -17,10 +17,15 @@ const runChecks = async (tx) => {
   `);
 
   await check('reserved stock equals confirmed unbilled sales lines', tx.$queryRaw`
-    WITH expected AS (
-      SELECT oi."productId", SUM(oi.quantity)::int AS quantity
+    WITH shipped AS (
+      SELECT si."orderItemId", SUM(si.quantity)::bigint AS quantity
+      FROM "ShipmentItem" si
+      GROUP BY si."orderItemId"
+    ), expected AS (
+      SELECT oi."productId", SUM(oi.quantity - COALESCE(s.quantity, 0))::int AS quantity
       FROM "Order" o
       JOIN "OrderItem" oi ON oi."orderId" = o.id
+      LEFT JOIN shipped s ON s."orderItemId" = oi.id
       WHERE o.status = 'CONFIRMED'
         AND NOT EXISTS (SELECT 1 FROM "Invoice" inv WHERE inv."orderId" = o.id)
       GROUP BY oi."productId"
@@ -133,10 +138,12 @@ const runChecks = async (tx) => {
     WHERE receipt."purchaseOrderId" <> poi."purchaseOrderId"
   `);
 
-  await check('sale consumption movements match invoiced lines', tx.$queryRaw`
+  await check('legacy sale consumption movements match invoiced lines', tx.$queryRaw`
     WITH expected AS (
       SELECT inv."orderId", ii."productId", SUM(ii.quantity)::bigint AS quantity
-      FROM "Invoice" inv JOIN "InvoiceItem" ii ON ii."invoiceId" = inv.id
+      FROM "Invoice" inv
+      JOIN "Shipment" s ON s."orderId" = inv."orderId" AND s."requestHash" = 'legacy'
+      JOIN "InvoiceItem" ii ON ii."invoiceId" = inv.id
       GROUP BY inv."orderId", ii."productId"
     ), actual AS (
       SELECT im."referenceId" AS "orderId", im."productId",
@@ -150,6 +157,74 @@ const runChecks = async (tx) => {
       ON a."orderId" = e."orderId" AND a."productId" = e."productId"
     WHERE COALESCE(e.quantity, 0) <> -COALESCE(a.quantity, 0)
       OR COALESCE(e.quantity, 0) <> -COALESCE(a.reserved, 0)
+  `);
+
+  await check('shipment consumption movements match dispatched quantities', tx.$queryRaw`
+    WITH expected AS (
+      SELECT s.id AS "shipmentId", oi."productId", SUM(si.quantity)::bigint AS quantity
+      FROM "Shipment" s
+      JOIN "ShipmentItem" si ON si."shipmentId" = s.id
+      JOIN "OrderItem" oi ON oi.id = si."orderItemId"
+      WHERE s."requestHash" <> 'legacy'
+      GROUP BY s.id, oi."productId"
+    ), actual AS (
+      SELECT im."referenceId" AS "shipmentId", im."productId",
+        SUM(im."quantityDelta")::bigint AS quantity, SUM(im."reservedDelta")::bigint AS reserved
+      FROM "InventoryMovement" im
+      WHERE im.type = 'SALE_CONSUMPTION' AND im."referenceType" = 'SHIPMENT'
+      GROUP BY im."referenceId", im."productId"
+    )
+    SELECT COUNT(*)::int AS violations
+    FROM expected e FULL OUTER JOIN actual a
+      ON a."shipmentId" = e."shipmentId" AND a."productId" = e."productId"
+    WHERE COALESCE(e.quantity, 0) <> -COALESCE(a.quantity, 0)
+      OR COALESCE(e.quantity, 0) <> -COALESCE(a.reserved, 0)
+  `);
+
+  await check('shipment quantities belong to the order and do not exceed ordered units', tx.$queryRaw`
+    WITH shipped AS (
+      SELECT si."orderItemId", SUM(si.quantity)::bigint AS quantity
+      FROM "ShipmentItem" si
+      GROUP BY si."orderItemId"
+    )
+    SELECT (
+      SELECT COUNT(*)::int
+      FROM "ShipmentItem" si
+      JOIN "Shipment" s ON s.id = si."shipmentId"
+      JOIN "OrderItem" oi ON oi.id = si."orderItemId"
+      WHERE s."orderId" <> oi."orderId"
+    ) + (
+      SELECT COUNT(*)::int
+      FROM shipped s
+      JOIN "OrderItem" oi ON oi.id = s."orderItemId"
+      WHERE s.quantity > oi.quantity
+    ) AS violations
+  `);
+
+  await check('shipments contain lines and are not attached to cancelled orders', tx.$queryRaw`
+    SELECT (
+      SELECT COUNT(*)::int
+      FROM "Shipment" s
+      WHERE NOT EXISTS (SELECT 1 FROM "ShipmentItem" si WHERE si."shipmentId" = s.id)
+    ) + (
+      SELECT COUNT(*)::int
+      FROM "Shipment" s
+      JOIN "Order" o ON o.id = s."orderId"
+      WHERE o.status = 'CANCELLED'
+    ) AS violations
+  `);
+
+  await check('invoices are issued only after all ordered quantities are shipped', tx.$queryRaw`
+    WITH shipped AS (
+      SELECT si."orderItemId", SUM(si.quantity)::bigint AS quantity
+      FROM "ShipmentItem" si
+      GROUP BY si."orderItemId"
+    )
+    SELECT COUNT(*)::int AS violations
+    FROM "Invoice" i
+    JOIN "OrderItem" oi ON oi."orderId" = i."orderId"
+    LEFT JOIN shipped s ON s."orderItemId" = oi.id
+    WHERE COALESCE(s.quantity, 0) <> oi.quantity
   `);
 
   await check('customer returns and credit notes match invoiced quantities and snapshots', tx.$queryRaw`
@@ -213,11 +288,18 @@ const runChecks = async (tx) => {
       FROM "Order" o JOIN "OrderItem" oi ON oi."orderId" = o.id
       GROUP BY o.id, oi."productId"
     ), actual AS (
-      SELECT im."referenceId" AS "orderId", im."productId",
+      SELECT CASE
+          WHEN im."referenceType" = 'SHIPMENT' THEN s."orderId"
+          ELSE im."referenceId"
+        END AS "orderId", im."productId",
         SUM(im."reservedDelta")::bigint AS quantity
       FROM "InventoryMovement" im
-      WHERE im."referenceType" = 'ORDER'
-      GROUP BY im."referenceId", im."productId"
+      LEFT JOIN "Shipment" s ON im."referenceType" = 'SHIPMENT' AND s.id = im."referenceId"
+      WHERE im."referenceType" IN ('ORDER', 'SHIPMENT')
+      GROUP BY CASE
+          WHEN im."referenceType" = 'SHIPMENT' THEN s."orderId"
+          ELSE im."referenceId"
+        END, im."productId"
     )
     SELECT COUNT(*)::int AS violations
     FROM expected e FULL OUTER JOIN actual a

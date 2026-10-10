@@ -1,4 +1,4 @@
-<% const money = cents => `$${(cents / 100).toFixed(2)}`; const total = order.items.reduce((sum, item) => sum + item.quantity * item.unitPriceCents, 0); const units = order.items.reduce((sum, item) => sum + item.quantity, 0); const stage = order.invoice ? 'INVOICED' : order.status; const progress = order.invoice ? 100 : order.status === 'CONFIRMED' ? 50 : 0; %>
+<% const money = cents => `$${(cents / 100).toFixed(2)}`; const total = order.items.reduce((sum, item) => sum + item.quantity * item.unitPriceCents, 0); const units = order.items.reduce((sum, item) => sum + item.quantity, 0); const shippedUnits = Object.values(order.shippedQuantities).reduce((sum, quantity) => sum + quantity, 0); const stage = order.fulfillmentStatus; const progress = order.invoice ? 100 : order.status === 'DRAFT' ? 0 : 25 + Math.round(shippedUnits / units * 60); %>
 <%- include('../partials/header') %>
   <article class="document-page">
     <header class="document-header">
@@ -6,33 +6,52 @@
         <div><p class="eyebrow"><a href="/orders">Sales orders</a> / Document</p><h1>Sales order <span class="document-id"><%= order.id.slice(0, 12) %></span><span class="print-only print-document-id"><%= order.id %></span></h1></div>
         <div class="document-actions" data-testid="sales-order-actions">
           <% if (order.status === 'DRAFT' && locals.can?.('orders.write')) { %><form action="/orders/<%= order.id %>/confirm" method="post" data-confirm="Confirm this order and reserve the required stock?"><%- include('../partials/csrf') %><button type="submit">Confirm & reserve</button></form><% } %>
-          <% if (order.status === 'CONFIRMED' && !order.invoice && locals.can?.('invoices.write')) { %><form action="/orders/<%= order.id %>/invoice" method="post" data-confirm="Fulfill this order and issue its invoice? Reserved stock will be consumed."><%- include('../partials/csrf') %><label for="invoiceDueDate">Invoice due date</label><input type="date" id="invoiceDueDate" name="dueDate" value="<%= defaultInvoiceDueDate %>" required /><button type="submit">Fulfill & invoice</button></form><% } %>
+          <% if (['READY_TO_SHIP', 'PARTIALLY_SHIPPED'].includes(stage) && locals.can?.('shipments.write')) { %><a class="button" href="#dispatch-shipment">Dispatch shipment</a><% } %>
+          <% if (stage === 'READY_TO_INVOICE' && locals.can?.('invoices.write')) { %><form action="/orders/<%= order.id %>/invoice" method="post" data-confirm="Issue an invoice for all shipped items?"><%- include('../partials/csrf') %><label for="invoiceDueDate">Invoice due date</label><input type="date" id="invoiceDueDate" name="dueDate" value="<%= defaultInvoiceDueDate %>" required /><button type="submit">Issue invoice</button></form><% } %>
           <% if (order.invoice) { %><a class="button secondary" href="/invoices/<%= order.invoice.id %>">Open invoice</a><% } %>
-          <% if (order.status !== 'CANCELLED' && !order.invoice && locals.can?.('orders.write')) { %><form action="/orders/<%= order.id %>/cancel" method="post" data-confirm="Cancel this sales order? This action cannot be undone." data-confirm-tone="danger"><%- include('../partials/csrf') %><button class="button ghost" type="submit">Cancel order</button></form><% } %>
+          <% if (order.status !== 'CANCELLED' && !order.invoice && !order.shipments.length && locals.can?.('orders.write')) { %><form action="/orders/<%= order.id %>/cancel" method="post" data-confirm="Cancel this sales order? This action cannot be undone." data-confirm-tone="danger"><%- include('../partials/csrf') %><button class="button ghost" type="submit">Cancel order</button></form><% } %>
           <button class="button ghost" type="button" data-print-document aria-label="Print sales order">Print</button>
         </div>
       </div>
       <dl class="document-facts">
         <div><dt>Customer</dt><dd><a href="/customers/<%= order.customer.id %>"><%= order.customer.name %></a></dd></div>
         <div><dt>Order total</dt><dd data-testid="order-total"><%= money(total) %></dd></div>
-        <div><dt>Stage</dt><dd><span class="status status-<%= order.invoice ? 'paid' : order.status.toLowerCase() %>" data-testid="order-status"><%= stage %></span></dd></div>
+        <div><dt>Stage</dt><dd><span class="status status-<%= stage.toLowerCase() %>" data-testid="order-status"><%= stage.replaceAll('_', ' ') %></span></dd></div>
         <div><dt>Invoice</dt><dd><% if (order.invoice) { %><a href="/invoices/<%= order.invoice.id %>"><%= order.invoice.id.slice(0, 12) %></a><% } else { %>Not issued<% } %></dd></div>
       </dl>
       <% if (order.status === 'CANCELLED') { %><p class="section-note">This order was cancelled before invoicing.</p><% } else { %>
-        <div class="document-progress"><span>Draft</span><div class="progress-track" role="progressbar" aria-label="Sales order workflow" aria-valuemin="0" aria-valuemax="100" aria-valuenow="<%= progress %>"><span class="progress-segment <%= order.invoice ? 'progress-done' : 'progress-ready' %>" style="width:<%= progress %>%"></span></div><span>Confirmed</span><span>Invoiced</span></div>
+        <div class="document-progress"><span>Draft</span><div class="progress-track" role="progressbar" aria-label="Sales order fulfillment progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="<%= progress %>"><span class="progress-segment <%= order.invoice ? 'progress-done' : 'progress-ready' %>" style="width:<%= progress %>%"></span></div><span>Shipped <%= shippedUnits %> / <%= units %></span><span>Invoiced</span></div>
       <% } %>
     </header>
-    <nav class="document-tabs" aria-label="Sales order sections"><a href="#contents">Contents</a><a href="#details">Details</a></nav>
+    <nav class="document-tabs" aria-label="Sales order sections"><a href="#contents">Contents</a><a href="#shipments">Shipments</a><a href="#details">Details</a></nav>
     <section class="document-section" id="contents">
       <h2>Line items</h2><p class="section-note">Sale prices are captured when this order is drafted.</p>
-      <div class="table-wrap"><table class="table-plain document-lines"><thead><tr><th>No.</th><th>Product</th><th>SKU</th><th class="numeric">Quantity</th><th class="numeric">Unit price</th><th class="numeric">Line total</th></tr></thead><tbody>
-        <% order.items.forEach(function(item, index) { %><tr data-testid="sales-order-item"><td data-label="Line"><%= index + 1 %></td><td data-label="Product"><a href="/products/<%= item.product.id %>"><%= item.product.name %></a></td><td data-label="SKU" class="mono"><%= item.product.sku %></td><td data-label="Quantity" class="numeric"><%= item.quantity %></td><td data-label="Unit price" class="numeric"><%= money(item.unitPriceCents) %></td><td data-label="Line total" class="numeric"><strong><%= money(item.quantity * item.unitPriceCents) %></strong></td></tr><% }) %>
+      <div class="table-wrap"><table class="table-plain document-lines"><thead><tr><th>No.</th><th>Product</th><th>SKU</th><th class="numeric">Ordered</th><th class="numeric">Shipped</th><th class="numeric">Remaining</th><th class="numeric">Unit price</th><th class="numeric">Line total</th></tr></thead><tbody>
+        <% order.items.forEach(function(item, index) { const shipped = order.shippedQuantities[item.id] || 0; %><tr data-testid="sales-order-item"><td data-label="Line"><%= index + 1 %></td><td data-label="Product"><a href="/products/<%= item.product.id %>"><%= item.product.name %></a></td><td data-label="SKU" class="mono"><%= item.product.sku %></td><td data-label="Ordered" class="numeric"><%= item.quantity %></td><td data-label="Shipped" class="numeric"><%= shipped %></td><td data-label="Remaining" class="numeric"><%= item.quantity - shipped %></td><td data-label="Unit price" class="numeric"><%= money(item.unitPriceCents) %></td><td data-label="Line total" class="numeric"><strong><%= money(item.quantity * item.unitPriceCents) %></strong></td></tr><% }) %>
       </tbody></table></div>
       <div class="document-total"><div><span><%= order.items.length %> product lines · <%= units %> units</span><strong><%= money(total) %></strong></div><div><strong>Order total</strong><strong><%= money(total) %></strong></div></div>
     </section>
+    <section class="document-section" id="shipments">
+      <h2>Shipments</h2>
+      <p class="section-note">Dispatches consume reserved stock. An invoice becomes available after every ordered unit has shipped.</p>
+      <% if (order.shipments.length) { %>
+        <div class="table-wrap"><table class="table-plain"><thead><tr><th>Shipment</th><th>Dispatched</th><th>Items</th></tr></thead><tbody>
+          <% order.shipments.forEach(function(shipment) { %><tr data-testid="sales-shipment"><td class="mono"><%= shipment.id.slice(0, 12) %></td><td><%= new Date(shipment.dispatchedAt).toLocaleString() %></td><td><ul><% shipment.items.forEach(function(line) { const item = order.items.find(orderItem => orderItem.id === line.orderItemId); %><li><%= item?.product.name || 'Sales order item' %> × <%= line.quantity %></li><% }) %></ul></td></tr><% }) %>
+        </tbody></table></div>
+      <% } else { %><p class="empty">No shipments have been dispatched.</p><% } %>
+      <% if (['READY_TO_SHIP', 'PARTIALLY_SHIPPED'].includes(stage) && locals.can?.('shipments.write')) { %>
+        <form id="dispatch-shipment" action="/orders/<%= order.id %>/shipments" method="post" data-confirm="Dispatch the selected quantities now? Reserved stock will be consumed.">
+          <%- include('../partials/csrf') %><input type="hidden" name="idempotencyKey" value="<%= shipmentIdempotencyKey %>" />
+          <% order.items.forEach(function(item, index) { const remaining = order.remainingQuantities[item.id]; if (remaining > 0) { %>
+            <div><label for="shipment-quantity-<%= index %>">Ship <%= item.product.name %> · <%= item.product.sku %> (up to <%= remaining %> remaining)</label><input type="hidden" name="items[<%= index %>][orderItemId]" value="<%= item.id %>" /><input type="number" id="shipment-quantity-<%= index %>" name="items[<%= index %>][quantity]" value="<%= remaining %>" min="0" max="<%= remaining %>" step="1" required /></div>
+          <% } }) %>
+          <button type="submit">Dispatch selected quantities</button>
+        </form>
+      <% } %>
+    </section>
     <section class="document-section" id="details">
       <h2>Document details</h2>
-      <dl class="document-meta"><div><dt>Created</dt><dd><%= new Date(order.createdAt).toLocaleString() %></dd></div><div><dt>Confirmed</dt><dd><%= order.confirmedAt ? new Date(order.confirmedAt).toLocaleString() : 'Not confirmed' %></dd></div><div><dt>Fulfillment</dt><dd><%= order.invoice ? 'Invoiced; reserved stock consumed' : 'Not yet invoiced' %></dd></div></dl>
+      <dl class="document-meta"><div><dt>Created</dt><dd><%= new Date(order.createdAt).toLocaleString() %></dd></div><div><dt>Confirmed</dt><dd><%= order.confirmedAt ? new Date(order.confirmedAt).toLocaleString() : 'Not confirmed' %></dd></div><div><dt>Fulfillment</dt><dd><%= stage.replaceAll('_', ' ') %> · <%= shippedUnits %> of <%= units %> units shipped</dd></div></dl>
     </section>
   </article>
 <%- include('../partials/footer') %>

@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/prisma';
 import { receivableTotals } from '../invoices/invoice.rules';
+import { orderFulfillmentStatus } from '../orders/order.rules';
 
 export const analyticsPeriods = [7, 30, 90] as const;
 export type AnalyticsPeriod = (typeof analyticsPeriods)[number];
@@ -16,7 +17,15 @@ export async function getAnalytics(days: AnalyticsPeriod, now = new Date()) {
     prisma.invoice.findMany({ where: { createdAt: { gte: since, lte: until } }, include: { items: { include: { product: true } } } }),
     prisma.payment.findMany({ where: { createdAt: { gte: since, lte: until } } }),
     prisma.invoice.findMany({ where: { status: 'PENDING' }, include: { payments: true, creditNotes: true } }),
-    prisma.order.findMany({ where: { createdAt: { gte: since, lte: until } }, select: { status: true, invoice: { select: { id: true } } } }),
+    prisma.order.findMany({
+      where: { createdAt: { gte: since, lte: until } },
+      select: {
+        status: true,
+        items: { select: { id: true, quantity: true } },
+        shipments: { select: { items: { select: { orderItemId: true, quantity: true } } } },
+        invoice: { select: { id: true } },
+      },
+    }),
     prisma.purchaseReceipt.findMany({ where: { createdAt: { gte: since, lte: until } }, include: { items: { include: { purchaseOrderItem: true } } } }),
     prisma.purchaseOrder.findMany({ where: { status: { in: ['DRAFT', 'ORDERED', 'PARTIALLY_RECEIVED'] } }, include: { items: true } }),
     prisma.product.findMany({ include: { inventoryItem: true } }),
@@ -58,11 +67,14 @@ export async function getAnalytics(days: AnalyticsPeriod, now = new Date()) {
     && (product.inventoryItem?.availableQty ?? 0) - (product.inventoryItem?.reservedQty ?? 0) < product.reorderPoint);
   const topProducts = [...productTotals.values()].sort((a, b) => b.revenueCents - a.revenueCents || a.sku.localeCompare(b.sku)).slice(0, 5);
   const salesStatuses = {
-    DRAFT: salesOrders.filter(order => order.status === 'DRAFT').length,
-    CONFIRMED: salesOrders.filter(order => order.status === 'CONFIRMED' && !order.invoice).length,
-    INVOICED: salesOrders.filter(order => Boolean(order.invoice)).length,
-    CANCELLED: salesOrders.filter(order => order.status === 'CANCELLED').length,
+    DRAFT: 0,
+    READY_TO_SHIP: 0,
+    PARTIALLY_SHIPPED: 0,
+    READY_TO_INVOICE: 0,
+    INVOICED: 0,
+    CANCELLED: 0,
   };
+  for (const order of salesOrders) salesStatuses[orderFulfillmentStatus(order)]++;
   const bucketDays = days === 7 ? 1 : days === 30 ? 3 : 7;
   const chart = [];
   for (let offset = 0; offset < trend.length; offset += bucketDays) {

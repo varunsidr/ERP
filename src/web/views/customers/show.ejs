@@ -7,7 +7,7 @@
     </div>
     <div class="panel"><div class="panel-heading"><div><p class="eyebrow">Sales</p><h2>Order history</h2><p class="section-note"><%= customer.orders.length %> customer order<%= customer.orders.length === 1 ? '' : 's' %></p></div><a href="/orders">Order register</a></div>
       <% if (customer.orders.length) { %><div class="table-wrap responsive-summary-wrap"><table class="table-plain responsive-summary-table"><thead><tr><th>Order reference</th><th>Stage</th><th>Created</th></tr></thead><tbody>
-        <% customer.orders.forEach(function (order) { %><tr><td class="mono" data-label="Order reference"><a href="/orders/<%= order.id %>" aria-label="Open sales order <%= order.id %>"><%= order.id.slice(0, 12) %></a></td><td data-label="Stage"><span class="status status-<%= order.status.toLowerCase() %>"><%= order.status %></span></td><td data-label="Created"><%= new Date(order.createdAt).toLocaleDateString('en-US') %></td></tr><% }) %>
+        <% customer.orders.forEach(function (order) { %><tr><td class="mono" data-label="Order reference"><a href="/orders/<%= order.id %>" aria-label="Open sales order <%= order.id %>"><%= order.id.slice(0, 12) %></a></td><td data-label="Stage"><span class="status status-<%= order.fulfillmentStatus.toLowerCase() %>"><%= order.fulfillmentStatus.replaceAll('_', ' ') %></span></td><td data-label="Created"><%= new Date(order.createdAt).toLocaleDateString('en-US') %></td></tr><% }) %>
       </tbody></table></div><% } else { %><div class="list-empty"><strong>No orders yet</strong>Start a sales order for this customer when they are ready.</div><% } %>
     </div>
   </section>

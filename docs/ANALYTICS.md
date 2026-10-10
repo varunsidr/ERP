@@ -12,7 +12,8 @@ and Donut. Pie and Donut show the selected measure's share across interval
 groups; use their Invoiced/Collected control to change the measure. Select a
 mark or legend item for its exact interval and values. Longer periods combine
 adjacent buckets into at most five share groups. Charts remain read-only and
-do not change the underlying transactions.
+do not change the underlying transactions. The order mix separates ready-to-ship,
+partially shipped, ready-to-invoice, invoiced, and cancelled orders.
 
 Open receivables, remaining ordered purchase commitments and low-stock alerts are
 **current snapshots**, unaffected by the period selector. Receivables are
